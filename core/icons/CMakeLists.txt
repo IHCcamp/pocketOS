@@ -1,6 +1,8 @@
 cmake_minimum_required (VERSION 2.6)
 project (icons)
 
+include(../../cmake/beam.cmake)
+
 function(convert_image input output)
     add_custom_command(
         OUTPUT ${output}
@@ -45,6 +47,8 @@ make_module(icons64.erl
     icons64_warning_icon.erl.func
 )
 
+compile_erlang(icons64)
+
 add_custom_target(icons DEPENDS
-    icons64.erl
+    icons64.beam
 )
