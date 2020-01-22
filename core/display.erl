@@ -23,16 +23,8 @@ draw_text(Display, X, Y, Text, Color) ->
     avm_gen_server:call(Display, {draw_text, X, Y, Text, Color}, 60000).
 
 start() ->
-    case atomvm:platform() of
-        generic_unix ->
-            Display = open_port({spawn, "display"}, [{height, 240}, {width, 320}]),
-            {ok, Display};
-
-        esp32 ->
-            {ok, P} = avm_gen_server:start(?MODULE, [], []),
-            avm_gen_server:call(P, init, 10000),
-            {ok, P}
-    end.
+    Display = open_port({spawn, "display"}, [{height, 240}, {width, 320}]),
+    {ok, Display}.
 
 init(_) ->
     {ok, #state{}}.

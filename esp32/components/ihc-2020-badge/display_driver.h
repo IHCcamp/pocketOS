@@ -17,21 +17,12 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA .        *
  ***************************************************************************/
 
-#include <stdio.h>
+#ifndef _DISPLAY_DRIVER_H_
+#define _DISPLAY_DRIVER_H_
 
-#include <context.h>
+#include "context.h"
+#include "term.h"
 
-#include "display_driver.h"
+void display_driver_init(Context *ctx, term opts);
 
-// This function overwrites a weak symbol
-Context *sys_create_port_fallback(Context *new_ctx, const char *driver_name, term opts)
-{
-
-    if (!strcmp(driver_name, "display")) {
-        display_driver_init(new_ctx, opts);
-    } else {
-        context_destroy(new_ctx);
-        return NULL;
-    }
-    return new_ctx;
-}
+#endif
