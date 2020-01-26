@@ -21,6 +21,11 @@ static void consume_display_mailbox(Context *ctx);
 
 SDL_Surface *screen;
 
+static void *display_loop();
+
+static pthread_mutex_t ready_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t ready = PTHREAD_COND_INITIALIZER;
+
 void draw_image(SDL_Surface *screen, int x, int y, int width, int height, const char *data, Uint8 r, Uint8 g, Uint8 b)
 {
     Uint32 background_color = SDL_MapRGB(screen->format, r, g, b);
@@ -74,7 +79,7 @@ void draw_text(SDL_Surface *screen, int x, int y, const char *text, Uint8 r, Uin
     }
 }
 
-static void consume_display_mailbox(Context *ctx)
+static void process_message(Context *ctx)
 {
     Message *message = mailbox_dequeue(ctx);
     term msg = message->message;
@@ -161,10 +166,35 @@ static void consume_display_mailbox(Context *ctx)
     mailbox_send(target, return_tuple);
 }
 
+static void consume_display_mailbox(Context *ctx)
+{
+    while (!list_is_empty(&ctx->mailbox)) {
+        process_message(ctx);
+    }
+}
+
 void display_port_driver_init(Context *ctx, term opts)
 {
     ctx->native_handler = consume_display_mailbox;
     ctx->platform_data = NULL;
+
+    UNUSED(opts);
+
+    pthread_t thread_id;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_create(&thread_id, &attr, display_loop, NULL);
+
+    pthread_mutex_lock(&ready_mutex);
+    pthread_cond_wait(&ready, &ready_mutex);
+    pthread_mutex_unlock(&ready_mutex);
+}
+
+void *display_loop(void *args)
+{
+    pthread_mutex_lock(&ready_mutex);
+
+    UNUSED(args);
 
     if (SDL_Init(SDL_INIT_VIDEO) < 0 ) {
         abort();
@@ -178,7 +208,7 @@ void display_port_driver_init(Context *ctx, term opts)
 
     if (SDL_MUSTLOCK(screen)) {
         if (SDL_LockSurface(screen) < 0) {
-            return;
+            return NULL;
         }
     }
 
@@ -189,4 +219,32 @@ void display_port_driver_init(Context *ctx, term opts)
     }
 
     SDL_Flip(screen);
+
+    pthread_cond_signal(&ready);
+    pthread_mutex_unlock(&ready_mutex);
+
+    SDL_Event event;
+
+    while (SDL_WaitEvent(&event)) {
+        switch (event.type) {
+            case SDL_QUIT: {
+                exit(EXIT_SUCCESS);
+                break;
+            }
+
+            case SDL_KEYDOWN: {
+                break;
+            }
+
+            case SDL_KEYUP: {
+                break;
+            }
+
+            default: {
+                break;
+            }
+        }
+    }
+
+    return NULL;
 }
