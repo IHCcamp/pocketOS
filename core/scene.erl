@@ -3,6 +3,8 @@
 
 start() ->
     {ok, Display} = display:start(),
+    register(display, Display),
+    {ok, Input} = input:start(),
     Scene = render_message(info, "pocketOS", "Hello."),
     draw(Display, Scene),
     loop().
