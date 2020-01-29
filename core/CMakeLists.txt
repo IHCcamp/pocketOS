@@ -8,7 +8,7 @@ add_subdirectory(icons)
 compile_erlang(display)
 compile_erlang(input)
 compile_erlang(scene)
-compile_elixir(main)
+compile_elixir(main.ex Elixir.Main.beam)
 
 pack_deps(deps.avm
     ${ATOMVM_INSTALL_PREFIX}/lib/AtomVM/ebin/estdlib.avm
