@@ -6,6 +6,7 @@ include(../cmake/beam.cmake)
 add_subdirectory(icons)
 
 compile_erlang(display)
+compile_erlang(input)
 compile_erlang(scene)
 
 pack_deps(deps.avm
@@ -16,6 +17,7 @@ pack_deps(deps.avm
 pack_beam(pocketos.avm
     scene.beam
     display.beam
+    input.beam
     icons/icons64.beam
     deps.avm
 )

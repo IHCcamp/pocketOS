@@ -17,9 +17,45 @@
 
 #include "font.c"
 
+// from AtomVM generic_unix_sys.h
+
+typedef struct EventListener EventListener;
+
+typedef void (*event_handler_t)(EventListener *listener);
+
+struct EventListener {
+    struct ListHead listeners_list_head;
+
+    event_handler_t handler;
+    void *data;
+    int fd;
+};
+
+struct GenericUnixPlatformData
+{
+    struct ListHead *listeners;
+};
+
+// end of generic_unix_sys.h private header
+
+struct KeyboardEvent
+{
+    uint8_t key;
+    bool key_down;
+};
+
+static term keyboard_pid;
+static struct timespec ts0;
+static int keyboard_event_fds[2];
+
 static void consume_display_mailbox(Context *ctx);
 
 SDL_Surface *screen;
+
+static void *display_loop();
+
+static pthread_mutex_t ready_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t ready = PTHREAD_COND_INITIALIZER;
 
 void draw_image(SDL_Surface *screen, int x, int y, int width, int height, const char *data, Uint8 r, Uint8 g, Uint8 b)
 {
@@ -74,7 +110,7 @@ void draw_text(SDL_Surface *screen, int x, int y, const char *text, Uint8 r, Uin
     }
 }
 
-static void consume_display_mailbox(Context *ctx)
+static void process_message(Context *ctx)
 {
     Message *message = mailbox_dequeue(ctx);
     term msg = message->message;
@@ -136,6 +172,9 @@ static void consume_display_mailbox(Context *ctx)
 
         free(text);
 
+    } else if (cmd == context_make_atom(ctx, "\x6" "listen")) {
+        keyboard_pid = term_get_tuple_element(req, 1);
+
     } else {
         fprintf(stderr, "display: ");
         term_display(stderr, req, ctx);
@@ -161,10 +200,86 @@ static void consume_display_mailbox(Context *ctx)
     mailbox_send(target, return_tuple);
 }
 
+static void consume_display_mailbox(Context *ctx)
+{
+    while (!list_is_empty(&ctx->mailbox)) {
+        process_message(ctx);
+    }
+}
+
+static void send_message(term pid, term message, GlobalContext *global)
+{
+    int local_process_id = term_to_local_process_id(pid);
+    Context *target = globalcontext_get_process(global, local_process_id);
+    mailbox_send(target, message);
+}
+
+static void keyboard_callback(EventListener *listener)
+{
+    Context *ctx = (Context *) listener->data;
+
+    struct KeyboardEvent keyb;
+    read(keyboard_event_fds[0], &keyb, sizeof(keyb));
+
+    if (keyboard_pid) {
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+
+        avm_int_t millis = (ts.tv_sec - ts0.tv_sec) * 1000 + (ts.tv_nsec - ts0.tv_nsec) / 1000000;
+
+        if (UNLIKELY(memory_ensure_free(ctx, 5) != MEMORY_GC_OK)) {
+            abort();
+        }
+
+        term event_tuple = term_alloc_tuple(4, ctx);
+        term_put_tuple_element(event_tuple, 0, context_make_atom(ctx, "\xE" "keyboard_event"));
+        term_put_tuple_element(event_tuple, 1, term_from_int(keyb.key));
+        term_put_tuple_element(event_tuple, 2, keyb.key_down ? TRUE_ATOM : FALSE_ATOM);
+        term_put_tuple_element(event_tuple, 3, term_from_int(millis));
+
+        send_message(keyboard_pid, event_tuple, ctx->global);
+    }
+}
+
 void display_port_driver_init(Context *ctx, term opts)
 {
     ctx->native_handler = consume_display_mailbox;
     ctx->platform_data = NULL;
+
+    pipe(keyboard_event_fds);
+
+    UNUSED(opts);
+
+    pthread_t thread_id;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_create(&thread_id, &attr, display_loop, NULL);
+
+    pthread_mutex_lock(&ready_mutex);
+    pthread_cond_wait(&ready, &ready_mutex);
+    pthread_mutex_unlock(&ready_mutex);
+
+    GlobalContext *glb = ctx->global;
+    struct GenericUnixPlatformData *platform = glb->platform_data;
+
+    EventListener *listener = malloc(sizeof(EventListener));
+    if (IS_NULL_PTR(listener)) {
+        fprintf(stderr, "Failed to allocate memory: %s:%i.\n", __FILE__, __LINE__);
+        abort();
+    }
+    listener->fd = keyboard_event_fds[0];
+    listener->data = ctx;
+    listener->handler = keyboard_callback;
+    linkedlist_append(&platform->listeners, &listener->listeners_list_head);
+
+    clock_gettime(CLOCK_MONOTONIC, &ts0);
+}
+
+void *display_loop(void *args)
+{
+    pthread_mutex_lock(&ready_mutex);
+
+    UNUSED(args);
 
     if (SDL_Init(SDL_INIT_VIDEO) < 0 ) {
         abort();
@@ -178,7 +293,7 @@ void display_port_driver_init(Context *ctx, term opts)
 
     if (SDL_MUSTLOCK(screen)) {
         if (SDL_LockSurface(screen) < 0) {
-            return;
+            return NULL;
         }
     }
 
@@ -189,4 +304,40 @@ void display_port_driver_init(Context *ctx, term opts)
     }
 
     SDL_Flip(screen);
+
+    pthread_cond_signal(&ready);
+    pthread_mutex_unlock(&ready_mutex);
+
+    SDL_Event event;
+
+    while (SDL_WaitEvent(&event)) {
+        switch (event.type) {
+            case SDL_QUIT: {
+                exit(EXIT_SUCCESS);
+                break;
+            }
+
+            case SDL_KEYDOWN: {
+                struct KeyboardEvent keyb_event;
+                keyb_event.key = event.key.keysym.sym;
+                keyb_event.key_down = true;
+                write(keyboard_event_fds[1], &keyb_event, sizeof(keyb_event));
+                break;
+            }
+
+            case SDL_KEYUP: {
+                struct KeyboardEvent keyb_event;
+                keyb_event.key = event.key.keysym.sym;
+                keyb_event.key_down = false;
+                write(keyboard_event_fds[1], &keyb_event, sizeof(keyb_event));
+                break;
+            }
+
+            default: {
+                break;
+            }
+        }
+    }
+
+    return NULL;
 }
