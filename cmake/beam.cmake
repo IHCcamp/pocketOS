@@ -7,6 +7,15 @@ function(compile_erlang module_name)
     )
 endfunction()
 
+function(compile_elixir module_name)
+    add_custom_command(
+        OUTPUT ${module_name}.beam
+        COMMAND elixirc ${CMAKE_CURRENT_SOURCE_DIR}/${module_name}.ex
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${module_name}.ex
+        COMMENT "Compiling ${module_name}.ex"
+    )
+endfunction()
+
 function(pack_beam output)
     add_custom_command(
         OUTPUT ${output}
