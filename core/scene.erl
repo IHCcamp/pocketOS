@@ -7,7 +7,10 @@ start() ->
     {ok, Input} = input:start(),
     Scene = render_message(info, "pocketOS", "Hello."),
     draw(Display, Scene),
-    loop().
+    GBEmu = open_port({spawn, "gbemu"}, []),
+
+    UART = uart:open("UART0", []),
+    loop(GBEmu, UART).
 
 render_message(info, Title, Text) ->
     render_message(icons64:info_icon(), Title, Text);
@@ -52,8 +55,29 @@ render_options([Text | Options], Selected, Index) ->
         render_options(Options, Selected, Index + 1)
     ].
 
-loop() ->
-    loop().
+loop(GBEmu, UART) ->
+    {ok, R} = uart:read(UART),
+    erlang:display(R),
+    Msg =
+    case erlang:binary_to_list(R) of
+            % Serial / simulation
+            "s" -> {button, start, press};
+            "e" -> {button, select, press};
+            "a" -> {button, a, press};
+            "b" -> {button, b, press};
+            [27, 91, 68] -> {button, left, press};
+            [27, 91, 65] -> {button, up, press};
+            [27, 91, 67] -> {button, right, press};
+            [27, 91, 66] -> {button, down, press};
+
+            % Real hardware
+            [16#FC, 16#00, 16#02, 16#00, 16#FE] -> {button, down, press};
+            Any -> {none}
+        end,
+    erlang:display(ok),
+    avm_gen_server:call(GBEmu, Msg, 60000),
+    erlang:display(done),
+    loop(GBEmu, UART).
 
 draw(_Display, []) ->
     ok;
