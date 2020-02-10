@@ -12,6 +12,11 @@ How to Build and Flash
 ```
 cd esp32
 git clone https://github.com/bettio/AtomVM.git
+
+cd components/
+git clone https://github.com/IHCcamp/gnuboy.git
+cd ..
+
 make flash
 cd ..
 ```
