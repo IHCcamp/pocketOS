@@ -26,6 +26,8 @@
 
 #include <driver/spi_master.h>
 #include <esp_heap_caps.h>
+#include <sdmmc_cmd.h>
+#include <esp_vfs_fat.h>
 
 #include <atom.h>
 #include <bif.h>
@@ -40,6 +42,8 @@
 #include <term.h>
 #include <sys.h>
 
+#include "../../AtomVM/src/platforms/esp32/main/esp32_sys.h"
+
 #include <trace.h>
 
 #define MISO_IO_NUM 19
@@ -47,8 +51,10 @@
 #define SCLK_IO_NUM 18
 #define SPI_CLOCK_HZ 27000000
 #define SPI_MODE 0
-#define SPI_CS_IO_NUM 5
+#define DISPLAY_CS_IO_NUM 5
 #define ADDRESS_LEN_BITS 0
+
+#define SD_CS_IO_NUM   4
 
 #define ILI9341_SLPIN 0x10
 #define ILI9341_SLPOUT 0x11
@@ -101,10 +107,60 @@ struct SPI
 {
     spi_device_handle_t handle;
     spi_transaction_t transaction;
+    Context *ctx;
+    xQueueHandle replies_queue;
+
+    EventListener listener;
 };
+
+struct PendingReply
+{
+    uint64_t pending_call_ref_ticks;
+    term pending_call_pid;
+};
+
+static xQueueHandle display_messages_queue;
 
 static void display_driver_consume_mailbox(Context *ctx);
 static void display_init(Context *ctx, term opts);
+
+// sdcard init in display driver is quite an odd choice
+// however display and SD share the same bus
+static bool sdcard_init()
+{
+    ESP_LOGI("sdcard", "Trying sdcard init.");
+
+    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    sdspi_slot_config_t slot_config = SDSPI_SLOT_CONFIG_DEFAULT();
+    slot_config.gpio_miso = MISO_IO_NUM;
+    slot_config.gpio_mosi = MOSI_IO_NUM;
+    slot_config.gpio_sck  = SCLK_IO_NUM;
+    slot_config.gpio_cs   = SD_CS_IO_NUM;
+    // This initializes the slot without card detect (CD) and write protect (WP) signals.
+    // Modify slot_config.gpio_cd and slot_config.gpio_wp if your board has these signals.
+
+    esp_vfs_fat_sdmmc_mount_config_t mount_config = {
+        .format_if_mount_failed = false,
+        .max_files = 5,
+        .allocation_unit_size = 16 * 1024
+    };
+
+    sdmmc_card_t* card;
+    esp_err_t ret = esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot_config, &mount_config, &card);
+
+    if (ret != ESP_OK) {
+        if (ret == ESP_FAIL) {
+            ESP_LOGE("sdcard", "Failed to mount filesystem.");
+        } else {
+            ESP_LOGE("sdcard", "Failed to initialize the card (%s).", esp_err_to_name(ret));
+        }
+        return false;
+    }
+
+    sdmmc_card_print_info(stdout, card);
+
+    return true;
+}
 
 static bool spiwrite(struct SPI *spi_data, int data_len, uint32_t data)
 {
@@ -254,6 +310,42 @@ static inline void rgba_to_rgb565(const uint8_t *data, int buf_pixel_size, uint1
     }
 }
 
+void draw_buffer(struct SPI *spi, int x, int y, int width, int height, const void *imgdata)
+{
+    const uint16_t *data = imgdata;
+
+    set_screen_paint_area(spi, x, y, width, height);
+
+    writecommand(spi, TFT_RAMWR);
+
+    int dest_size = width * height;
+    int buf_pixel_size = (dest_size > 1024) ? 1024 : dest_size;
+
+    int chunks = dest_size / 1024;
+
+    uint16_t *tmpbuf = heap_caps_malloc(buf_pixel_size * sizeof(uint16_t), MALLOC_CAP_DMA);
+
+    spi_device_acquire_bus(spi->handle, portMAX_DELAY);
+    for (int i = 0; i < chunks; i++) {
+        uint16_t *data_b = data + 1024 * i;
+        for (int j = 0; j < 1024; j++) {
+            tmpbuf[j] = SPI_SWAP_DATA_TX(data_b[j], 16);
+        }
+        spidmawrite(spi, buf_pixel_size * sizeof(uint16_t), tmpbuf);
+    }
+    int last_chunk_size = dest_size - chunks * 1024;
+    if (last_chunk_size) {
+        uint16_t *data_b = data + chunks * 1024;
+        for (int j = 0; j < 1024; j++) {
+            tmpbuf[j] = SPI_SWAP_DATA_TX(data_b[j], 16);
+        }
+        spidmawrite(spi, last_chunk_size * sizeof(uint16_t), tmpbuf);
+    }
+    spi_device_release_bus(spi->handle);
+
+    free(tmpbuf);
+}
+
 static void draw_image(struct SPI *spi, int x, int y, int width, int height, const void *imgdata, uint8_t r, uint8_t g, uint8_t b)
 {
     const uint8_t *data = imgdata;
@@ -316,19 +408,12 @@ static void draw_text(struct SPI *spi, int x, int y, const char *text, uint8_t r
     }
 }
 
-static void display_driver_consume_mailbox(Context *ctx)
+static void process_message(Message *message, Context *ctx)
 {
-    Message *message = mailbox_dequeue(ctx);
     term msg = message->message;
 
-    term pid = term_get_tuple_element(msg, 1);
-    term ref = term_get_tuple_element(msg, 2);
     term req = term_get_tuple_element(msg, 3);
-
     term cmd = term_get_tuple_element(req, 0);
-
-    int local_process_id = term_to_local_process_id(pid);
-    Context *target = globalcontext_get_process(ctx->global, local_process_id);
 
     struct SPI *spi = ctx->platform_data;
 
@@ -348,6 +433,21 @@ static void display_driver_consume_mailbox(Context *ctx)
         const char *data = term_binary_data(term_get_tuple_element(img, 2));
 
         draw_image(spi, x, y, width, height, data, (color >> 11) << 3, ((color >> 5) & 0x3F) << 2, (color & 0x1F) << 3);
+
+    } else if (cmd == context_make_atom(ctx, "\xB" "draw_buffer")) {
+        int x = term_to_int(term_get_tuple_element(req, 1));
+        int y = term_to_int(term_get_tuple_element(req, 2));
+        int width = term_to_int(term_get_tuple_element(req, 3));
+        int height = term_to_int(term_get_tuple_element(req, 4));
+        unsigned long addr_low = term_to_int(term_get_tuple_element(req, 5));
+        unsigned long addr_high = term_to_int(term_get_tuple_element(req, 6));
+
+        const void *data = (const void *) ((addr_low | (addr_high << 16)));
+
+        draw_buffer(spi, x, y, width, height, data);
+
+        // draw_buffer is a kind of cast, no need to reply
+        return;
 
     } else if (cmd == context_make_atom(ctx, "\x9" "draw_rect")) {
         int x = term_to_int(term_get_tuple_element(req, 1));
@@ -378,15 +478,41 @@ static void display_driver_consume_mailbox(Context *ctx)
         fprintf(stderr, "\n");
     }
 
-    if (UNLIKELY(memory_ensure_free(ctx, 3) != MEMORY_GC_OK)) {
-        abort();
+    term pid = term_get_tuple_element(msg, 1);
+    term ref = term_get_tuple_element(msg, 2);
+
+    struct PendingReply pending = {
+        .pending_call_pid = pid,
+        .pending_call_ref_ticks = term_to_ref_ticks(ref)
+    };
+
+    xQueueSend(spi->replies_queue, &pending, 1);
+    xQueueSend(event_queue, &spi, 1);
+}
+
+static void process_messages(void *arg)
+{
+    struct SPI *args = arg;
+
+    while (true) {
+        Message *message;
+        xQueueReceive(display_messages_queue, &message, portMAX_DELAY);
+        process_message(message, args->ctx);
+        free(message);
     }
-    term return_tuple = term_alloc_tuple(2, ctx);
+}
 
-    term_put_tuple_element(return_tuple, 0, ref);
-    term_put_tuple_element(return_tuple, 1, OK_ATOM);
+void display_enqueue_message(Message *message)
+{
+    xQueueSend(display_messages_queue, &message, 1);
+}
 
-    mailbox_send(target, return_tuple);
+static void display_driver_consume_mailbox(Context *ctx)
+{
+    while (!list_is_empty(&ctx->mailbox)) {
+        Message *message = mailbox_dequeue(ctx);
+        xQueueSend(display_messages_queue, &message, 1);
+    }
 }
 
 static void set_rotation(struct SPI *spi, int rotation)
@@ -403,36 +529,81 @@ void display_driver_init(Context *ctx, term opts)
     display_init(ctx, opts);
 }
 
+static void send_message(term pid, term message, GlobalContext *global)
+{
+    int local_process_id = term_to_local_process_id(pid);
+    Context *target = globalcontext_get_process(global, local_process_id);
+    if (LIKELY(target)) {
+        mailbox_send(target, message);
+    }
+}
+
+void display_callback(EventListener *listener)
+{
+    struct SPI *spi = listener->data;
+    Context *ctx = spi->ctx;
+
+    struct PendingReply pending;
+    if (xQueueReceive(spi->replies_queue, &pending, 1)) {
+        int ref_size = (sizeof(uint64_t) / sizeof(term)) + 1;
+        if (UNLIKELY(memory_ensure_free(ctx, 3 + ref_size) != MEMORY_GC_OK)) {
+            abort();
+        }
+        term return_tuple = term_alloc_tuple(2, ctx);
+
+        term ref = term_from_ref_ticks(pending.pending_call_ref_ticks, ctx);
+
+        term_put_tuple_element(return_tuple, 0, ref);
+        term_put_tuple_element(return_tuple, 1, OK_ATOM);
+
+        send_message(pending.pending_call_pid, return_tuple, ctx->global);
+    }
+}
+
 static void display_init(Context *ctx, term opts)
 {
+    if (!sdcard_init()) {
+        spi_bus_config_t buscfg;
+        memset(&buscfg, 0, sizeof(spi_bus_config_t));
+        buscfg.miso_io_num = MISO_IO_NUM;
+        buscfg.mosi_io_num = MOSI_IO_NUM;
+        buscfg.sclk_io_num = SCLK_IO_NUM;
+        buscfg.quadwp_io_num = -1;
+        buscfg.quadhd_io_num = -1;
+
+        int ret = spi_bus_initialize(HSPI_HOST, &buscfg, 1);
+
+        if (ret == ESP_OK) {
+            fprintf(stderr, "initialized SPI\n");
+        } else {
+            fprintf(stderr, "spi_bus_initialize return code: %i\n", ret);
+        }
+    }
+
+    display_messages_queue = xQueueCreate(32, sizeof(Message *));
+
+    GlobalContext *glb = ctx->global;
+    struct ESP32PlatformData *platform = glb->platform_data;
+
     struct SPI *spi = malloc(sizeof(struct SPI));
     ctx->platform_data = spi;
 
-    spi_bus_config_t buscfg;
-    memset(&buscfg, 0, sizeof(spi_bus_config_t));
-    buscfg.miso_io_num = MISO_IO_NUM;
-    buscfg.mosi_io_num = MOSI_IO_NUM;
-    buscfg.sclk_io_num = SCLK_IO_NUM;
-    buscfg.quadwp_io_num = -1;
-    buscfg.quadhd_io_num = -1;
+    spi->ctx = ctx;
+    spi->replies_queue = xQueueCreate(32, sizeof(struct PendingReply));
+    spi->listener.sender = spi;
+    spi->listener.data = spi;
+    spi->listener.handler = display_callback;
+    list_append(&platform->listeners, &spi->listener.listeners_list_head);
 
     spi_device_interface_config_t devcfg;
     memset(&devcfg, 0, sizeof(spi_device_interface_config_t));
     devcfg.clock_speed_hz = SPI_CLOCK_HZ;
     devcfg.mode = SPI_MODE;
-    devcfg.spics_io_num = SPI_CS_IO_NUM;
+    devcfg.spics_io_num = DISPLAY_CS_IO_NUM;
     devcfg.queue_size = /*4*/ 32;
     devcfg.address_bits = ADDRESS_LEN_BITS;
 
-    int ret = spi_bus_initialize(HSPI_HOST, &buscfg, 1);
-
-    if (ret == ESP_OK) {
-        fprintf(stderr, "initialized SPI\n");
-    } else {
-        fprintf(stderr, "spi_bus_initialize return code: %i\n", ret);
-    }
-
-    ret = spi_bus_add_device(HSPI_HOST, &devcfg, &spi->handle);
+    int ret = spi_bus_add_device(HSPI_HOST, &devcfg, &spi->handle);
 
     if (ret == ESP_OK) {
         fprintf(stderr, "initialized SPI device\n");
@@ -560,4 +731,6 @@ static void display_init(Context *ctx, term opts)
     writecommand(spi, ILI9341_DISPON);
 
     set_rotation(spi, 1);
+
+    xTaskCreate(process_messages, "display", 10000, spi, 1, NULL);
 }

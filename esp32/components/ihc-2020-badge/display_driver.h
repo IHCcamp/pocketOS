@@ -21,8 +21,10 @@
 #define _DISPLAY_DRIVER_H_
 
 #include "context.h"
+#include "mailbox.h"
 #include "term.h"
 
 void display_driver_init(Context *ctx, term opts);
+void display_enqueue_message(Message *message);
 
 #endif
