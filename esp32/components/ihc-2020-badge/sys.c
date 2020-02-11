@@ -22,13 +22,15 @@
 #include <context.h>
 
 #include "display_driver.h"
+#include "gbemu.h"
 
 // This function overwrites a weak symbol
 Context *sys_create_port_fallback(Context *new_ctx, const char *driver_name, term opts)
 {
-
     if (!strcmp(driver_name, "display")) {
         display_driver_init(new_ctx, opts);
+    }else if (!strcmp(driver_name, "gbemu")) {
+        gbemu_driver_init(new_ctx, opts);
     } else {
         context_destroy(new_ctx);
         return NULL;
