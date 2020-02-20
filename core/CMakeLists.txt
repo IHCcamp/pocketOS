@@ -6,20 +6,21 @@ include(../cmake/beam.cmake)
 add_subdirectory(icons)
 
 compile_erlang(display)
-compile_erlang(input)
+compile_elixir(keyboard_parser.ex Elixir.KeyboardParser.beam)
 compile_erlang(scene)
 compile_elixir(main.ex Elixir.Main.beam)
 
 pack_deps(deps.avm
     ${ATOMVM_INSTALL_PREFIX}/lib/AtomVM/ebin/estdlib.avm
     ${ATOMVM_INSTALL_PREFIX}/lib/AtomVM/ebin/eavmlib.avm
+    ${ATOMVM_INSTALL_PREFIX}/lib/AtomVM/ebin/exavmlib.avm
 )
 
 pack_beam(pocketos.avm
     Elixir.Main.beam
     scene.beam
     display.beam
-    input.beam
+    Elixir.KeyboardParser.beam
     icons/icons64.beam
     deps.avm
 )
