@@ -25,7 +25,7 @@ defmodule KeyboardParser do
   @key_7_choices ~c(pqrs) |> List.to_tuple()
   @key_8_choices ~c(tuv) |> List.to_tuple()
   @key_9_choices ~c(xywz) |> List.to_tuple()
-  @key_0_choices [' '] |> List.to_tuple()
+  @key_0_choices ~c( ) |> List.to_tuple()
 
   def start do
     init_state()
@@ -42,7 +42,7 @@ defmodule KeyboardParser do
     ]
   end
 
-  def process_event(state, {:keyboard_event, key_code, key_down, event_timestamp} = event) do
+  def process_event(state, {:keyboard_event, key_code, true, event_timestamp} = event) do
     buffer = state[:buffer]
 
     if is_new_character?(state, event) do
@@ -50,25 +50,37 @@ defmodule KeyboardParser do
       |> Keyword.put(:char_index, 0)
       |> Keyword.put(:last_timestamp, event_timestamp)
       |> Keyword.put(:last_key, key_code)
-      |> Keyword.put(:key_down, key_down)
+      |> Keyword.put(:key_down, true)
       |> Keyword.put(:buffer, buffer ++ [char_from_key(key_code, 0)])
     else
       key_count = increase_key_count(state)
 
-      new_buffer =
-        String.replace_trailing(
-          buffer,
-          String.last(buffer),
-          char_from_key(key_code, key_count)
-        )
+      chr = char_from_key(key_code, key_count)
+      new_buffer = replace_last(buffer, chr)
 
       state
       |> Keyword.put(:char_index, key_count)
       |> Keyword.put(:last_timestamp, event_timestamp)
       |> Keyword.put(:last_key, key_code)
-      |> Keyword.put(:key_down, key_down)
+      |> Keyword.put(:key_down, true)
       |> Keyword.put(:buffer, new_buffer)
     end
+  end
+
+  def process_event(state, {:keyboard_event, _key_code, false, _event_timestamp}) do
+    Keyword.put(state, :key_down, false)
+  end
+
+  def process_event(state, {:keyboard_event, _key_code, _key_down, _event_timestamp}) do
+    state
+  end
+
+  defp replace_last([last], replace_with) do
+    [replace_with]
+  end
+
+  defp replace_last([h | t], replace_with) do
+    [h | replace_last(t, replace_with)]
   end
 
   defp time_ms_diff(prev_t, curr_t) do
@@ -86,7 +98,7 @@ defmodule KeyboardParser do
 
   defp is_new_character?(state, {:keyboard_event, key_code, key_down, timestamp}) do
     with {:timeout, false} <-
-           timeout?(time_ms_diff(timestamp, state[:last_timestamp])),
+           timeout?(time_ms_diff(state[:last_timestamp], timestamp)),
          {:same_key, true} <- same_key_code?(state[:last_key], key_code) do
       false
     else
@@ -101,51 +113,51 @@ defmodule KeyboardParser do
 
   defp char_from_key(@key_1, index) do
     size = tuple_size(@key_1_choices)
-    @key_1_choices |> elem(Integer.mod(index, size))
+    @key_1_choices |> elem(rem(index, size))
   end
 
   defp char_from_key(@key_2, index) do
     size = tuple_size(@key_2_choices)
-    @key_2_choices |> elem(Integer.mod(index, size))
+    @key_2_choices |> elem(rem(index, size))
   end
 
   defp char_from_key(@key_3, index) do
     size = tuple_size(@key_3_choices)
-    @key_3_choices |> elem(Integer.mod(index, size))
+    @key_3_choices |> elem(rem(index, size))
   end
 
   defp char_from_key(@key_4, index) do
     size = tuple_size(@key_4_choices)
-    @key_4_choices |> elem(Integer.mod(index, size))
+    @key_4_choices |> elem(rem(index, size))
   end
 
   defp char_from_key(@key_5, index) do
     size = tuple_size(@key_5_choices)
-    @key_5_choices |> elem(Integer.mod(index, size))
+    @key_5_choices |> elem(rem(index, size))
   end
 
   defp char_from_key(@key_6, index) do
     size = tuple_size(@key_6_choices)
-    @key_6_choices |> elem(Integer.mod(index, size))
+    @key_6_choices |> elem(rem(index, size))
   end
 
   defp char_from_key(@key_7, index) do
     size = tuple_size(@key_7_choices)
-    @key_7_choices |> elem(Integer.mod(index, size))
+    @key_7_choices |> elem(rem(index, size))
   end
 
   defp char_from_key(@key_8, index) do
     size = tuple_size(@key_8_choices)
-    @key_8_choices |> elem(Integer.mod(index, size))
+    @key_8_choices |> elem(rem(index, size))
   end
 
   defp char_from_key(@key_9, index) do
     size = tuple_size(@key_9_choices)
-    @key_9_choices |> elem(Integer.mod(index, size))
+    @key_9_choices |> elem(rem(index, size))
   end
 
   defp char_from_key(@key_0, index) do
     size = tuple_size(@key_0_choices)
-    @key_0_choices |> elem(Integer.mod(index, size))
+    @key_0_choices |> elem(rem(index, size))
   end
 end
