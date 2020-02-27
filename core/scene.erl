@@ -23,10 +23,10 @@ render_message(warning, Title, Text) ->
 
 render_message(Icon, Title, Text) ->
     [
-        {clear_screen, 16#CE59},
-        {rect, 0, 0, 320, 18, 16#0010},
-        {text, 1, 1, Title, 16#FFFF},
-        {image, 1, 80, Icon, 16#CE59},
+        {clear_screen, 16#C8C8C8},
+        {rect, 0, 0, 320, 18, 16#000080},
+        {text, 1, 1, Title, 16#FFFFFF},
+        {image, 1, 80, Icon, 16#C8C8C8},
         {text, 70, 103, Text, 16#00}
     ].
 
@@ -38,20 +38,20 @@ render_options([], _Selected, _Index) ->
 
 render_options([Text | Options], Selected, Index) when Selected == Index ->
     [
-        {rect, 0, 18 * Index, 320, 18, 16#0010},
-        {text, 1, 18 * Index + 1, Text, 16#FFFF} |
+        {rect, 0, 18 * Index, 320, 18, 16#000080},
+        {text, 1, 18 * Index + 1, Text, 16#FFFFFF} |
         render_options(Options, Selected, Index + 1)
     ];
 
 render_options([Text | Options], Selected, Index) ->
     BackColor =
         case Index rem 2 of
-            0 -> 16#E73C;
-            1 -> 16#D69A
+            0 -> 16#E0E4E0;
+            1 -> 16#D0D0D0
         end,
     [
         {rect, 0, 18 * Index, 320, 18, BackColor},
-        {text, 1, 18 * Index + 1, Text, 16#0000} |
+        {text, 1, 18 * Index + 1, Text, 16#000000} |
         render_options(Options, Selected, Index + 1)
     ].
 
