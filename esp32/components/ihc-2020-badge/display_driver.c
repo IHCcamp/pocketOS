@@ -420,7 +420,7 @@ static void process_message(Message *message, Context *ctx)
     if (cmd == context_make_atom(ctx, "\xC" "clear_screen")) {
         int color = term_to_int(term_get_tuple_element(req, 1));
 
-        clear_screen(spi, (color >> 11) << 3, ((color >> 5) & 0x3F) << 2, (color & 0x1F) << 3);
+        clear_screen(spi, (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF);
 
     } else if (cmd == context_make_atom(ctx, "\xA" "draw_image")) {
         int x = term_to_int(term_get_tuple_element(req, 1));
@@ -432,7 +432,7 @@ static void process_message(Message *message, Context *ctx)
         int height = term_to_int(term_get_tuple_element(img, 1));
         const char *data = term_binary_data(term_get_tuple_element(img, 2));
 
-        draw_image(spi, x, y, width, height, data, (color >> 11) << 3, ((color >> 5) & 0x3F) << 2, (color & 0x1F) << 3);
+        draw_image(spi, x, y, width, height, data, (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF);
 
     } else if (cmd == context_make_atom(ctx, "\xB" "draw_buffer")) {
         int x = term_to_int(term_get_tuple_element(req, 1));
@@ -457,7 +457,7 @@ static void process_message(Message *message, Context *ctx)
         int color = term_to_int(term_get_tuple_element(req, 5));
 
         draw_rect(spi, x, y, width, height,
-                (color >> 11) << 3, ((color >> 5) & 0x3F) << 2, (color & 0x1F) << 3);
+                (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF);
 
     } else if (cmd == context_make_atom(ctx, "\x9" "draw_text")) {
         int x = term_to_int(term_get_tuple_element(req, 1));
@@ -468,7 +468,7 @@ static void process_message(Message *message, Context *ctx)
         int ok;
         char *text = interop_term_to_string(text_term, &ok);
 
-        draw_text(spi, x, y, text, (color >> 11) << 3, ((color >> 5) & 0x3F) << 2, (color & 0x1F) << 3);
+        draw_text(spi, x, y, text, (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF);
 
         free(text);
 
