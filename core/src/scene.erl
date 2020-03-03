@@ -13,13 +13,13 @@ start() ->
     loop(GBEmu, UART).
 
 render_message(info, Title, Text) ->
-    render_message(icons64:info_icon(), Title, Text);
+    render_message(get_icon("info.rgba", 64), Title, Text);
 
 render_message(critical, Title, Text) ->
-    render_message(icons64:critical_icon(), Title, Text);
+    render_message(get_icon("critical.rgba", 64), Title, Text);
 
 render_message(warning, Title, Text) ->
-    render_message(icons64:warning_icon(), Title, Text);
+    render_message(get_icon("warning.rgba", 64), Title, Text);
 
 render_message(Icon, Title, Text) ->
     [
@@ -97,3 +97,6 @@ draw(Display, [{rect, X, Y, W, H, Color} | Tail]) ->
 draw(Display, [{text, X, Y, Text, Color} | Tail]) ->
     display:draw_text(Display, X, Y, Text, Color),
     draw(Display, Tail).
+
+get_icon(IconName, Size) ->
+    {Size, Size, atomvm:read_priv(pocketos, IconName)}.
