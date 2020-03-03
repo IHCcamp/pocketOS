@@ -75,7 +75,7 @@ loop(GBEmu, UART) ->
             Any -> {none}
         end,
     erlang:display(ok),
-    avm_gen_server:call(GBEmu, Msg, 60000),
+    gen_server:call(GBEmu, Msg, 60000),
     erlang:display(done),
     loop(GBEmu, UART).
 
