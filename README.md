@@ -23,9 +23,9 @@ cd ..
 
 ```
 cd core
-cmake -DATOMVM_INSTALL_PREFIX=/usr/local/ .
-make core
-$IDF_PATH/components/esptool_py/esptool/esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 115200 --before default_reset --after hard_reset write_flash -u --flash_mode dio --flash_freq 40m --flash_size detect  0x110000 pocketos.avm
+mkdir avm_deps
+cp /usr/local/lib/AtomVM/ebin/*.beam avm_deps
+mix atomvm.esp32.flash
 cd ..
 ```
 
