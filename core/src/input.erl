@@ -5,9 +5,9 @@
 start() ->
     case atomvm:platform() of
         generic_unix ->
-            {ok, P} = avm_gen_server:start(?MODULE, [], []),
+            {ok, P} = gen_server:start(?MODULE, [], []),
             Display = whereis(display),
-            avm_gen_server:call(Display, {listen, P}, 60000),
+            gen_server:call(Display, {listen, P}, 60000),
             {ok, Display};
 
         esp32 ->
