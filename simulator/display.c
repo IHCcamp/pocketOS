@@ -134,7 +134,7 @@ static void process_message(Context *ctx)
         int color = term_to_int(term_get_tuple_element(req, 1));
 
         draw_rect(screen, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT,
-                (color >> 11) << 3, ((color >> 5) & 0x3F) << 2, (color & 0x1F) << 3);
+                (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF);
 
     } else if (cmd == context_make_atom(ctx, "\xA" "draw_image")) {
         int x = term_to_int(term_get_tuple_element(req, 1));
