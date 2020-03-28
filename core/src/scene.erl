@@ -7,10 +7,14 @@ start() ->
     {ok, Input} = input:start(),
     Scene = render_message(info, "pocketOS", "Hello."),
     draw(Display, Scene),
-    GBEmu = open_port({spawn, "gbemu"}, []),
+    %GBEmu = open_port({spawn, "gbemu"}, []),
 
-    UART = uart:open("UART0", []),
-    loop(GBEmu, UART).
+    %UART = uart:open("UART0", []),
+    %loop(GBEmu, UART).
+    loop().
+
+loop() ->
+    loop().
 
 render_message(info, Title, Text) ->
     render_message(get_icon("info.rgba", 64), Title, Text);
