@@ -5,16 +5,16 @@ defmodule KeyboardParser do
 
   @key_timeout_ms 800
 
-  @key_1 '1'
-  @key_2 '2'
-  @key_3 '3'
-  @key_4 '4'
-  @key_5 '5'
-  @key_6 '6'
-  @key_7 '7'
-  @key_8 '8'
-  @key_9 '9'
-  @key_0 '0'
+  @key_1 ?1
+  @key_2 ?2
+  @key_3 ?3
+  @key_4 ?4
+  @key_5 ?5
+  @key_6 ?6
+  @key_7 ?7
+  @key_8 ?8
+  @key_9 ?9
+  @key_0 ?0
 
   @key_1_choices ~c(.,:!?";) |> List.to_tuple()
   @key_2_choices ~c(abc) |> List.to_tuple()
@@ -32,18 +32,18 @@ defmodule KeyboardParser do
   end
 
   def init_state do
-    state = [
+    [
       buffer: '',
       last_timestamp: 0,
       upper_case: false,
-      last_key: nil,
+      last_key: '',
       char_index: 0,
       key_down: false
     ]
   end
 
   def process_event(state, {:keyboard_event, key_code, true, event_timestamp} = event) do
-    buffer = state[:buffer]
+    buffer = Keyword.get(state, :buffer)
 
     if is_new_character?(state, event) do
       state
@@ -67,7 +67,7 @@ defmodule KeyboardParser do
     end
   end
 
-  def process_event(state, {:keyboard_event, _key_code, false, _event_timestamp}) do
+  def process_event(state, {:keyboard_event, key_code, false, event_timestamp}) do
     Keyword.put(state, :key_down, false)
   end
 
@@ -87,24 +87,31 @@ defmodule KeyboardParser do
     curr_t - prev_t
   end
 
-  defp timeout?(delta_t) do
-    res = delta_t > @key_timeout_ms
-    {:timeout, res}
-  end
+  defp timeout?(delta_t), do: delta_t > @key_timeout_ms
 
-  defp same_key_code?(prev_key_code, curr_key_code) do
-    {:same_key, prev_key_code == curr_key_code}
-  end
+  defp same_key_code?(prev_key_code, curr_key_code), do: prev_key_code == curr_key_code
 
-  defp is_new_character?(state, {:keyboard_event, key_code, key_down, timestamp}) do
-    with {:timeout, false} <-
-           timeout?(time_ms_diff(state[:last_timestamp], timestamp)),
-         {:same_key, true} <- same_key_code?(state[:last_key], key_code) do
-      false
-    else
+  defp is_new_character?(state, {:keyboard_event, key_code, true, timestamp}) do
+    last_timestamp = Keyword.fetch!(state, :last_timestamp)
+    last_key = Keyword.fetch!(state, :last_key)
+
+    timed_out =
+      time_ms_diff(last_timestamp, timestamp)
+      |> timeout?()
+
+    same_key = same_key_code?(last_key, key_code)
+
+    case {timed_out, same_key} do
+      {false, true} ->
+        false
+
       _ ->
         true
     end
+  end
+
+  defp is_new_character?(_state, {:keyboard_event, _key_code, false, _timestamp}) do
+    false
   end
 
   defp increase_key_count(state) do
@@ -159,5 +166,10 @@ defmodule KeyboardParser do
   defp char_from_key(@key_0, index) do
     size = tuple_size(@key_0_choices)
     @key_0_choices |> elem(rem(index, size))
+  end
+
+  defp char_from_key(_, _) do
+    :erlang.display("Maybe not exactly what you want")
+    ''
   end
 end
