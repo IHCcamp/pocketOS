@@ -16,6 +16,8 @@ defmodule KeyboardParser do
   @key_9 ?9
   @key_0 ?0
 
+  @caps_lock_key ?/
+
   @key_1_choices ~c(.,:!?";) |> List.to_tuple()
   @key_2_choices ~c(abc) |> List.to_tuple()
   @key_3_choices ~c(def) |> List.to_tuple()
@@ -43,8 +45,26 @@ defmodule KeyboardParser do
     ]
   end
 
+  def process_event(state, {:keyboard_event, @caps_lock_key, true, event_timestamp}) do
+    new_upper_case = not Keyword.fetch!(state, :upper_case)
+
+    state
+    |> Keyword.put(:upper_case, new_upper_case)
+    |> Keyword.put(:key_pressed_ts, event_timestamp)
+    |> Keyword.put(:last_key, @caps_lock_key)
+    |> Keyword.put(:key_down, true)
+  end
+
+  def process_event(state, {:keyboard_event, @caps_lock_key, false, event_timestamp}) do
+    state
+    |> Keyword.put(:key_released_ts, event_timestamp)
+    |> Keyword.put(:last_key, @caps_lock_key)
+    |> Keyword.put(:key_down, false)
+  end
+
   def process_event(state, {:keyboard_event, key_code, true, event_timestamp} = event) do
     buffer = Keyword.get(state, :buffer)
+    upper_case = Keyword.get(state, :upper_case)
 
     if is_new_character?(state, event) do
       state
@@ -52,11 +72,11 @@ defmodule KeyboardParser do
       |> Keyword.put(:key_pressed_ts, event_timestamp)
       |> Keyword.put(:last_key, key_code)
       |> Keyword.put(:key_down, true)
-      |> Keyword.put(:buffer, buffer ++ [char_from_key(key_code, 0)])
+      |> Keyword.put(:buffer, buffer ++ [char_from_key(key_code, 0, upper_case)])
     else
       key_count = increase_key_count(state)
 
-      chr = char_from_key(key_code, key_count)
+      chr = char_from_key(key_code, key_count, upper_case)
       new_buffer = replace_last(buffer, chr)
 
       state
@@ -141,57 +161,87 @@ defmodule KeyboardParser do
     state[:char_index] + 1
   end
 
-  defp char_from_key(@key_1, index) do
+  defp to_right_case(chr, false = _upper_case), do: chr
+  defp to_right_case(chr, true = _upper_case), do: chr - ?\s
+
+  defp char_from_key(@key_1, index, upper_case) do
     size = tuple_size(@key_1_choices)
-    @key_1_choices |> elem(rem(index, size))
+
+    @key_1_choices
+    |> elem(rem(index, size))
+    |> to_right_case(upper_case)
   end
 
-  defp char_from_key(@key_2, index) do
+  defp char_from_key(@key_2, index, upper_case) do
     size = tuple_size(@key_2_choices)
-    @key_2_choices |> elem(rem(index, size))
+
+    @key_2_choices
+    |> elem(rem(index, size))
+    |> to_right_case(upper_case)
   end
 
-  defp char_from_key(@key_3, index) do
+  defp char_from_key(@key_3, index, upper_case) do
     size = tuple_size(@key_3_choices)
-    @key_3_choices |> elem(rem(index, size))
+
+    @key_3_choices
+    |> elem(rem(index, size))
+    |> to_right_case(upper_case)
   end
 
-  defp char_from_key(@key_4, index) do
+  defp char_from_key(@key_4, index, upper_case) do
     size = tuple_size(@key_4_choices)
-    @key_4_choices |> elem(rem(index, size))
+
+    @key_4_choices
+    |> elem(rem(index, size))
+    |> to_right_case(upper_case)
   end
 
-  defp char_from_key(@key_5, index) do
+  defp char_from_key(@key_5, index, upper_case) do
     size = tuple_size(@key_5_choices)
-    @key_5_choices |> elem(rem(index, size))
+
+    @key_5_choices
+    |> elem(rem(index, size))
+    |> to_right_case(upper_case)
   end
 
-  defp char_from_key(@key_6, index) do
+  defp char_from_key(@key_6, index, upper_case) do
     size = tuple_size(@key_6_choices)
-    @key_6_choices |> elem(rem(index, size))
+
+    @key_6_choices
+    |> elem(rem(index, size))
+    |> to_right_case(upper_case)
   end
 
-  defp char_from_key(@key_7, index) do
+  defp char_from_key(@key_7, index, upper_case) do
     size = tuple_size(@key_7_choices)
-    @key_7_choices |> elem(rem(index, size))
+
+    @key_7_choices
+    |> elem(rem(index, size))
+    |> to_right_case(upper_case)
   end
 
-  defp char_from_key(@key_8, index) do
+  defp char_from_key(@key_8, index, upper_case) do
     size = tuple_size(@key_8_choices)
-    @key_8_choices |> elem(rem(index, size))
+
+    @key_8_choices
+    |> elem(rem(index, size))
+    |> to_right_case(upper_case)
   end
 
-  defp char_from_key(@key_9, index) do
+  defp char_from_key(@key_9, index, upper_case) do
     size = tuple_size(@key_9_choices)
-    @key_9_choices |> elem(rem(index, size))
+
+    @key_9_choices
+    |> elem(rem(index, size))
+    |> to_right_case(upper_case)
   end
 
-  defp char_from_key(@key_0, index) do
+  defp char_from_key(@key_0, index, _upper_case) do
     size = tuple_size(@key_0_choices)
     @key_0_choices |> elem(rem(index, size))
   end
 
-  defp char_from_key(_, _) do
+  defp char_from_key(_, _, _) do
     :erlang.display("Maybe not exactly what you want")
     ''
   end
