@@ -4,7 +4,9 @@
 start() ->
     {ok, Display} = display:start(),
     register(display, Display),
-    {ok, Input} = input:start(),
+    {ok, Input} = 'Elixir.Input':start(),
+    register(input, Input),
+    ok = 'Elixir.Input':set_parser_module(keyboard_parser),
     Scene = render_message(info, "pocketOS", "Hello."),
     draw(Display, Scene),
     %GBEmu = open_port({spawn, "gbemu"}, []),
