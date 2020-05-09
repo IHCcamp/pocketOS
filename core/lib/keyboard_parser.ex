@@ -34,7 +34,8 @@ defmodule KeyboardParser do
   def init_state do
     [
       buffer: '',
-      last_timestamp: 0,
+      key_pressed_ts: 0,
+      key_released_ts: 0,
       upper_case: false,
       last_key: '',
       char_index: 0,
@@ -48,7 +49,7 @@ defmodule KeyboardParser do
     if is_new_character?(state, event) do
       state
       |> Keyword.put(:char_index, 0)
-      |> Keyword.put(:last_timestamp, event_timestamp)
+      |> Keyword.put(:key_pressed_ts, event_timestamp)
       |> Keyword.put(:last_key, key_code)
       |> Keyword.put(:key_down, true)
       |> Keyword.put(:buffer, buffer ++ [char_from_key(key_code, 0)])
@@ -60,22 +61,44 @@ defmodule KeyboardParser do
 
       state
       |> Keyword.put(:char_index, key_count)
-      |> Keyword.put(:last_timestamp, event_timestamp)
+      |> Keyword.put(:key_pressed_ts, event_timestamp)
       |> Keyword.put(:last_key, key_code)
       |> Keyword.put(:key_down, true)
       |> Keyword.put(:buffer, new_buffer)
     end
   end
 
-  def process_event(state, {:keyboard_event, key_code, false, event_timestamp}) do
-    Keyword.put(state, :key_down, false)
+  def process_event(state, {:keyboard_event, _key_code, false, event_timestamp} = event) do
+    state
+    |> Keyword.put(:key_down, false)
+    |> Keyword.put(:key_released_ts, event_timestamp)
+    |> update_buffer_if_timeout(event)
   end
 
   def process_event(state, {:keyboard_event, _key_code, _key_down, _event_timestamp}) do
     state
   end
 
-  defp replace_last([last], replace_with) do
+  defp update_buffer_if_timeout(
+         state,
+         {:keyboard_event, key_code, _key_down, event_timestamp}
+       ) do
+    key_pressed_ts = Keyword.fetch!(state, :key_pressed_ts)
+
+    if timeout?(time_ms_diff(key_pressed_ts, event_timestamp)) do
+      chr = num_from_key(key_code)
+
+      new_buffer =
+        Keyword.fetch!(state, :buffer)
+        |> replace_last(chr)
+
+      Keyword.put(state, :buffer, new_buffer)
+    else
+      state
+    end
+  end
+
+  defp replace_last([_last], replace_with) do
     [replace_with]
   end
 
@@ -92,11 +115,11 @@ defmodule KeyboardParser do
   defp same_key_code?(prev_key_code, curr_key_code), do: prev_key_code == curr_key_code
 
   defp is_new_character?(state, {:keyboard_event, key_code, true, timestamp}) do
-    last_timestamp = Keyword.fetch!(state, :last_timestamp)
+    key_pressed_ts = Keyword.fetch!(state, :key_pressed_ts)
     last_key = Keyword.fetch!(state, :last_key)
 
     timed_out =
-      time_ms_diff(last_timestamp, timestamp)
+      time_ms_diff(key_pressed_ts, timestamp)
       |> timeout?()
 
     same_key = same_key_code?(last_key, key_code)
@@ -172,4 +195,15 @@ defmodule KeyboardParser do
     :erlang.display("Maybe not exactly what you want")
     ''
   end
+
+  defp num_from_key(@key_0), do: ?0
+  defp num_from_key(@key_1), do: ?1
+  defp num_from_key(@key_2), do: ?2
+  defp num_from_key(@key_3), do: ?3
+  defp num_from_key(@key_4), do: ?4
+  defp num_from_key(@key_5), do: ?5
+  defp num_from_key(@key_6), do: ?6
+  defp num_from_key(@key_7), do: ?7
+  defp num_from_key(@key_8), do: ?8
+  defp num_from_key(@key_9), do: ?9
 end
